@@ -1,0 +1,635 @@
+dashboard_html = '''<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DrishtiPath — NHAI Road Quality Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+  :root {
+    --bg:       #0a0e1a;
+    --bg2:      #111827;
+    --bg3:      #1a2235;
+    --border:   rgba(99,179,237,0.15);
+    --accent:   #3b82f6;
+    --pass:     #22c55e;
+    --monitor:  #f59e0b;
+    --fail:     #ef4444;
+    --text:     #e2e8f0;
+    --muted:    #64748b;
+    --font:     'Rajdhani', sans-serif;
+    --mono:     'JetBrains Mono', monospace;
+  }
+
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Grid background */
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background-image:
+      linear-gradient(rgba(59,130,246,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(59,130,246,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .container { position: relative; z-index: 1; padding: 20px; max-width: 1400px; margin: 0 auto; }
+
+  /* ── Header ── */
+  header {
+    display: flex; align-items: center; gap: 16px;
+    padding: 14px 20px; margin-bottom: 20px;
+    background: var(--bg2);
+    border: 0.5px solid var(--border);
+    border-radius: 12px;
+  }
+  .logo {
+    font-size: 26px; font-weight: 700; letter-spacing: 1px;
+    color: var(--accent);
+  }
+  .logo span { color: #93c5fd; }
+  .header-meta {
+    display: flex; gap: 24px; margin-left: auto;
+    font-size: 13px; color: var(--muted); font-family: var(--mono);
+  }
+  .header-meta b { color: var(--text); }
+
+  /* ── Stat cards ── */
+  .stats-row {
+    display: grid; grid-template-columns: repeat(4, 1fr);
+    gap: 14px; margin-bottom: 16px;
+  }
+  .stat-card {
+    background: var(--bg2); border: 0.5px solid var(--border);
+    border-radius: 10px; padding: 16px 18px;
+    display: flex; flex-direction: column; gap: 4px;
+    animation: fadeUp 0.5s ease both;
+  }
+  .stat-card:nth-child(1) { animation-delay: 0.05s; }
+  .stat-card:nth-child(2) { animation-delay: 0.10s; }
+  .stat-card:nth-child(3) { animation-delay: 0.15s; }
+  .stat-card:nth-child(4) { animation-delay: 0.20s; }
+  .stat-label { font-size: 12px; color: var(--muted); letter-spacing: 0.5px; text-transform: uppercase; }
+  .stat-value { font-size: 32px; font-weight: 700; line-height: 1; }
+  .stat-sub   { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .stat-bar   { height: 3px; border-radius: 2px; background: var(--bg3); margin-top: 8px; overflow: hidden; }
+  .stat-fill  { height: 100%; border-radius: 2px; transition: width 1.2s cubic-bezier(.4,0,.2,1); }
+  @keyframes fadeUp {
+    from { opacity:0; transform: translateY(12px); }
+    to   { opacity:1; transform: translateY(0); }
+  }
+
+  /* ── Main grid ── */
+  .main-grid {
+    display: grid;
+    grid-template-columns: 1fr 380px;
+    gap: 14px; margin-bottom: 16px;
+  }
+
+  /* ── Road map panel ── */
+  .road-panel {
+    background: var(--bg2); border: 0.5px solid var(--border);
+    border-radius: 10px; padding: 18px;
+    animation: fadeUp 0.5s 0.25s ease both;
+  }
+  .panel-title {
+    font-size: 13px; font-weight: 600; letter-spacing: 1px;
+    text-transform: uppercase; color: var(--muted);
+    margin-bottom: 14px; display: flex; align-items: center; gap: 8px;
+  }
+  .panel-title::before {
+    content: ''; display: block; width: 3px; height: 14px;
+    background: var(--accent); border-radius: 2px;
+  }
+
+  /* Road strip */
+  #road-strip { width: 100%; height: 72px; border-radius: 8px; overflow: hidden; position: relative; }
+  .road-bg {
+    position: absolute; inset: 0;
+    background: #1c2333;
+    display: flex; align-items: center;
+  }
+  .section-block {
+    height: 100%; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    position: relative; cursor: pointer;
+    transition: filter 0.2s;
+  }
+  .section-block:hover { filter: brightness(1.2); }
+  .section-block .km-label {
+    position: absolute; bottom: 4px; left: 50%; transform: translateX(-50%);
+    font-size: 10px; font-family: var(--mono); color: rgba(255,255,255,0.6);
+    white-space: nowrap;
+  }
+  .warn-icon {
+    position: absolute; top: -18px; left: 50%; transform: translateX(-50%);
+    font-size: 14px;
+  }
+
+  /* km ruler */
+  #km-ruler {
+    display: flex; justify-content: space-between;
+    padding: 4px 0; font-size: 11px; color: var(--muted);
+    font-family: var(--mono); margin-top: 4px;
+  }
+
+  /* Legend */
+  .road-legend {
+    display: flex; gap: 20px; margin-top: 12px;
+    font-size: 12px;
+  }
+  .legend-item { display: flex; align-items: center; gap: 6px; }
+  .legend-dot  { width: 10px; height: 10px; border-radius: 2px; }
+
+  /* ── Right panels ── */
+  .right-col { display: flex; flex-direction: column; gap: 14px; }
+
+  .chart-card {
+    background: var(--bg2); border: 0.5px solid var(--border);
+    border-radius: 10px; padding: 16px;
+    animation: fadeUp 0.5s 0.3s ease both;
+  }
+
+  .donut-row {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 10px; animation: fadeUp 0.5s 0.35s ease both;
+  }
+  .mini-card {
+    background: var(--bg2); border: 0.5px solid var(--border);
+    border-radius: 10px; padding: 14px;
+    display: flex; flex-direction: column; align-items: center; gap: 6px;
+  }
+  .mini-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+  .mini-value { font-size: 26px; font-weight: 700; }
+
+  /* ── Data table ── */
+  .table-panel {
+    background: var(--bg2); border: 0.5px solid var(--border);
+    border-radius: 10px; padding: 16px;
+    animation: fadeUp 0.5s 0.4s ease both;
+  }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th {
+    text-align: left; padding: 8px 10px;
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;
+    color: var(--muted); border-bottom: 0.5px solid var(--border);
+    font-weight: 500;
+  }
+  td {
+    padding: 9px 10px; border-bottom: 0.5px solid rgba(99,179,237,0.06);
+    font-family: var(--mono); font-size: 12px;
+  }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: rgba(59,130,246,0.04); }
+
+  .badge {
+    display: inline-block; padding: 2px 8px; border-radius: 4px;
+    font-size: 11px; font-weight: 600; letter-spacing: 0.5px;
+    font-family: var(--font);
+  }
+  .badge-pass    { background: rgba(34,197,94,0.15);  color: var(--pass); }
+  .badge-monitor { background: rgba(245,158,11,0.15); color: var(--monitor); }
+  .badge-fail    { background: rgba(239,68,68,0.15);  color: var(--fail); }
+
+  /* ── Upload zone ── */
+  #upload-zone {
+    border: 1.5px dashed var(--border); border-radius: 12px;
+    padding: 40px; text-align: center; cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+    background: var(--bg2);
+  }
+  #upload-zone:hover { border-color: var(--accent); background: rgba(59,130,246,0.04); }
+  #upload-zone .up-icon { font-size: 36px; margin-bottom: 12px; }
+  #upload-zone .up-title { font-size: 18px; font-weight: 600; margin-bottom: 6px; }
+  #upload-zone .up-sub { font-size: 13px; color: var(--muted); }
+  #file-input { display: none; }
+
+  /* responsive */
+  @media (max-width: 900px) {
+    .main-grid { grid-template-columns: 1fr; }
+    .stats-row { grid-template-columns: repeat(2,1fr); }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <!-- Upload UI (shown before data loads) -->
+  <div id="upload-view">
+    <header>
+      <div class="logo">Drish<span>ti</span>Path</div>
+      <div class="header-meta"><b>NHAI Road Quality Intelligence</b></div>
+    </header>
+    <div id="upload-zone" onclick="document.getElementById('file-input').click()">
+      <div class="up-icon">📡</div>
+      <div class="up-title">Load Survey Data</div>
+      <div class="up-sub">Upload the survey_data.json generated from your Colab notebook</div>
+      <input type="file" id="file-input" accept=".json" onchange="loadJSON(this)">
+    </div>
+    <p style="text-align:center;color:var(--muted);margin-top:14px;font-size:13px;">
+      Or — <a href="#" onclick="loadDemo()" style="color:var(--accent)">load demo data</a> to preview the dashboard
+    </p>
+  </div>
+
+  <!-- Dashboard (shown after data loads) -->
+  <div id="dashboard-view" style="display:none">
+
+    <header>
+      <div class="logo">Drish<span>ti</span>Path</div>
+      <div style="width:1px;height:24px;background:var(--border);margin:0 4px;"></div>
+      <span id="hdr-route" style="font-size:14px;color:var(--muted)"></span>
+      <div class="header-meta">
+        <span>Flight ID: <b id="hdr-fid"></b></span>
+        <span>Survey Date: <b id="hdr-date"></b></span>
+      </div>
+    </header>
+
+    <!-- Stat cards -->
+    <div class="stats-row">
+      <div class="stat-card">
+        <div class="stat-label">Total km surveyed</div>
+        <div class="stat-value" id="s-total" style="color:var(--accent)">—</div>
+        <div class="stat-sub" id="s-sections"></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Sections passing IRC:35</div>
+        <div class="stat-value" id="s-pass-pct" style="color:var(--pass)">—</div>
+        <div class="stat-bar"><div class="stat-fill" id="s-pass-bar" style="background:var(--pass);width:0%"></div></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Urgent maintenance km</div>
+        <div class="stat-value" id="s-fail-km" style="color:var(--fail)">—</div>
+        <div class="stat-sub" id="s-fail-pct" style="color:var(--fail)"></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Average RL value</div>
+        <div class="stat-value" id="s-avg-rl" style="color:#93c5fd">—</div>
+        <div class="stat-sub">mcd/m²/lux</div>
+      </div>
+    </div>
+
+    <!-- Main grid -->
+    <div class="main-grid">
+
+      <!-- Road strip -->
+      <div class="road-panel">
+        <div class="panel-title">Road Quality Map</div>
+        <div id="road-strip"><div class="road-bg" id="road-blocks"></div></div>
+        <div id="km-ruler"></div>
+        <div class="road-legend">
+          <div class="legend-item"><div class="legend-dot" style="background:var(--pass)"></div>Good (IRC Pass)</div>
+          <div class="legend-item"><div class="legend-dot" style="background:var(--monitor)"></div>Monitor (Borderline)</div>
+          <div class="legend-item"><div class="legend-dot" style="background:var(--fail)"></div>Poor (IRC Fail)</div>
+        </div>
+
+        <!-- RL chart -->
+        <div style="margin-top:18px">
+          <div class="panel-title">RL value vs chainage</div>
+          <div style="position:relative;height:130px">
+            <canvas id="rl-chart"></canvas>
+          </div>
+        </div>
+
+        <!-- Parameter radar -->
+        <div style="margin-top:18px">
+          <div class="panel-title">Avg parameter vs IRC minimum</div>
+          <div style="position:relative;height:180px">
+            <canvas id="bar-chart"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right col -->
+      <div class="right-col">
+
+        <!-- Donut + confidence -->
+        <div class="donut-row">
+          <div class="mini-card">
+            <div class="mini-label">Distribution</div>
+            <div style="position:relative;height:110px;width:110px">
+              <canvas id="donut-chart"></canvas>
+            </div>
+            <div style="font-size:11px;color:var(--muted);text-align:center;line-height:1.6">
+              <span style="color:var(--pass)">■</span> Pass &nbsp;
+              <span style="color:var(--monitor)">■</span> Monitor &nbsp;
+              <span style="color:var(--fail)">■</span> Fail
+            </div>
+          </div>
+          <div class="mini-card">
+            <div class="mini-label">Model confidence</div>
+            <div class="mini-value" id="s-conf" style="color:var(--accent)">—</div>
+            <div style="font-size:11px;color:var(--muted)">avg across sections</div>
+            <div style="margin-top:8px;width:100%">
+              <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Pass km</div>
+              <div class="stat-bar" style="margin-top:0"><div class="stat-fill" id="pass-km-bar" style="background:var(--pass);width:0%"></div></div>
+              <div style="font-size:11px;color:var(--muted);margin-top:8px;margin-bottom:4px">Fail km</div>
+              <div class="stat-bar" style="margin-top:0"><div class="stat-fill" id="fail-km-bar" style="background:var(--fail);width:0%"></div></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- IRC legend boxes -->
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">
+          <div style="background:rgba(34,197,94,0.08);border:0.5px solid rgba(34,197,94,0.2);border-radius:8px;padding:10px;text-align:center">
+            <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Pass</div>
+            <div style="font-size:18px;font-weight:700;color:var(--pass)" id="b-pass-km">—</div>
+            <div style="font-size:10px;color:var(--muted)">km</div>
+          </div>
+          <div style="background:rgba(245,158,11,0.08);border:0.5px solid rgba(245,158,11,0.2);border-radius:8px;padding:10px;text-align:center">
+            <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Monitor</div>
+            <div style="font-size:18px;font-weight:700;color:var(--monitor)" id="b-mon-km">—</div>
+            <div style="font-size:10px;color:var(--muted)">km</div>
+          </div>
+          <div style="background:rgba(239,68,68,0.08);border:0.5px solid rgba(239,68,68,0.2);border-radius:8px;padding:10px;text-align:center">
+            <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Fail</div>
+            <div style="font-size:18px;font-weight:700;color:var(--fail)" id="b-fail-km">—</div>
+            <div style="font-size:10px;color:var(--muted)">km</div>
+          </div>
+        </div>
+
+        <!-- Section detail (click on road) -->
+        <div id="section-detail" style="background:var(--bg3);border:0.5px solid var(--border);border-radius:10px;padding:14px;display:none">
+          <div class="panel-title" style="margin-bottom:10px">Section detail</div>
+          <div id="detail-content" style="font-size:12px;line-height:1.8;font-family:var(--mono);color:var(--text)"></div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Data table -->
+    <div class="table-panel">
+      <div class="panel-title" style="margin-bottom:12px">Section-wise survey results</div>
+      <div style="overflow-x:auto">
+        <table>
+          <thead>
+            <tr>
+              <th>Chainage</th>
+              <th>RL</th>
+              <th>QD</th>
+              <th>Brightness</th>
+              <th>Contrast</th>
+              <th>Sharpness</th>
+              <th>Vis. Score</th>
+              <th>Speed Zone</th>
+              <th>Condition</th>
+              <th>Confidence</th>
+              <th>IRC:35</th>
+            </tr>
+          </thead>
+          <tbody id="table-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+  </div><!-- end dashboard-view -->
+</div><!-- end container -->
+
+<script>
+const SECTION_KM = 0.5;
+
+function colorForLabel(label) {
+  if (label === 'Good')     return getComputedStyle(document.documentElement).getPropertyValue('--pass').trim()   || '#22c55e';
+  if (label === 'Moderate') return getComputedStyle(document.documentElement).getPropertyValue('--monitor').trim()|| '#f59e0b';
+  return getComputedStyle(document.documentElement).getPropertyValue('--fail').trim() || '#ef4444';
+}
+function badgeClass(label) {
+  if (label === 'Good')     return 'badge-pass';
+  if (label === 'Moderate') return 'badge-monitor';
+  return 'badge-fail';
+}
+function ircBadge(pass) {
+  return pass
+    ? '<span class="badge badge-pass">PASS</span>'
+    : '<span class="badge badge-fail">FAIL</span>';
+}
+
+function renderDashboard(data) {
+  document.getElementById('upload-view').style.display    = 'none';
+  document.getElementById('dashboard-view').style.display = 'block';
+
+  const n          = data.length;
+  const totalKm    = Math.round(n * SECTION_KM * 10) / 10;
+  const passCount  = data.filter(d => d.irc_pass).length;
+  const modCount   = data.filter(d => d.label === 'Moderate').length;
+  const failCount  = data.filter(d => !d.irc_pass).length;
+  const passPct    = Math.round(passCount / n * 100);
+  const passKm     = Math.round(passCount  * SECTION_KM * 10) / 10;
+  const monKm      = Math.round(modCount   * SECTION_KM * 10) / 10;
+  const failKm     = Math.round(failCount  * SECTION_KM * 10) / 10;
+  const avgConf    = Math.round(data.reduce((s,d) => s + d.confidence, 0) / n * 10) / 10;
+  const avgRL      = Math.round(data.reduce((s,d) => s + d.features.rl, 0) / n);
+
+  // Header
+  document.getElementById('hdr-route').textContent = `NH Survey · ${totalKm} km`;
+  document.getElementById('hdr-fid').textContent   = 'DP-' + Date.now().toString().slice(-8);
+  document.getElementById('hdr-date').textContent  = new Date().toLocaleString('en-IN',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'});
+
+  // Stat cards
+  document.getElementById('s-total').textContent    = totalKm + ' km';
+  document.getElementById('s-sections').textContent = n + ' sections analyzed';
+  document.getElementById('s-pass-pct').textContent = passPct + '%';
+  document.getElementById('s-fail-km').textContent  = failKm + ' km';
+  document.getElementById('s-fail-pct').textContent = `(${Math.round(failKm/totalKm*100)}% of route)`;
+  document.getElementById('s-avg-rl').textContent   = avgRL;
+  document.getElementById('s-conf').textContent     = avgConf + '%';
+  document.getElementById('b-pass-km').textContent  = passKm;
+  document.getElementById('b-mon-km').textContent   = monKm;
+  document.getElementById('b-fail-km').textContent  = failKm;
+
+  setTimeout(() => {
+    document.getElementById('s-pass-bar').style.width    = passPct + '%';
+    document.getElementById('pass-km-bar').style.width   = (passKm / totalKm * 100) + '%';
+    document.getElementById('fail-km-bar').style.width   = (failKm / totalKm * 100) + '%';
+  }, 300);
+
+  // ── Road strip ──
+  const strip = document.getElementById('road-blocks');
+  strip.innerHTML = '';
+  const blockW = 100 / n;
+  data.forEach((sec, i) => {
+    const col = colorForLabel(sec.label);
+    const block = document.createElement('div');
+    block.className = 'section-block';
+    block.style.cssText = `width:${blockW}%;background:${col}22;border-right:1px solid ${col}33;`;
+    block.innerHTML = `
+      ${!sec.irc_pass ? '<div class="warn-icon">⚠️</div>' : ''}
+      <div style="width:100%;height:6px;background:${col};position:absolute;bottom:0;left:0;border-radius:0"></div>
+      <div class="km-label">${sec.chainage_km}</div>`;
+    block.addEventListener('click', () => showDetail(sec));
+    strip.appendChild(block);
+  });
+
+  // km ruler
+  const ruler = document.getElementById('km-ruler');
+  ruler.innerHTML = '';
+  const step = Math.max(1, Math.floor(n / 6));
+  for (let i = 0; i < n; i += step) {
+    const span = document.createElement('span');
+    span.textContent = data[i].chainage_km + ' km';
+    ruler.appendChild(span);
+  }
+
+  // ── RL chart ──
+  const rlCtx = document.getElementById('rl-chart').getContext('2d');
+  new Chart(rlCtx, {
+    type: 'scatter',
+    data: {
+      datasets: [{
+        label: 'RL value',
+        data: data.map(d => ({ x: d.chainage_km, y: Math.round(d.features.rl) })),
+        pointBackgroundColor: data.map(d => colorForLabel(d.label)),
+        pointRadius: 5, pointHoverRadius: 7,
+        showLine: true,
+        borderColor: 'rgba(99,179,237,0.3)',
+        borderWidth: 1, tension: 0.4,
+      }, {
+        label: 'IRC Threshold',
+        data: data.map(d => ({ x: d.chainage_km, y: d.thresholds.rl })),
+        borderColor: '#ef4444', borderWidth: 1.5,
+        borderDash: [4, 4], pointRadius: 0, showLine: true,
+        fill: false,
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: '#64748b', font: { size: 10 } }, grid: { color: 'rgba(99,179,237,0.05)' }, title: { display: false } },
+        y: { ticks: { color: '#64748b', font: { size: 10 } }, grid: { color: 'rgba(99,179,237,0.05)' } }
+      }
+    }
+  });
+
+  // ── Bar chart: avg params vs thresholds ──
+  const params    = ['rl','qd','brightness','contrast','blur','visibility_score'];
+  const labels    = ['RL','QD','Bright','Contrast','Sharp','Visibility'];
+  const avgVals   = params.map(p => Math.round(data.reduce((s,d) => s + d.features[p], 0) / n));
+  const threshVals= params.map(p => data[0].thresholds[p]);
+  const barColors = avgVals.map((v,i) => v >= threshVals[i] ? '#22c55e88' : '#ef444488');
+
+  const barCtx = document.getElementById('bar-chart').getContext('2d');
+  new Chart(barCtx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        { label: 'Avg measured', data: avgVals, backgroundColor: barColors, borderRadius: 3 },
+        { label: 'IRC minimum',  data: threshVals, backgroundColor: 'rgba(99,179,237,0.2)', borderRadius: 3 }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: '#64748b', font: { size: 10 } }, grid: { display: false } },
+        y: { ticks: { color: '#64748b', font: { size: 10 } }, grid: { color: 'rgba(99,179,237,0.05)' } }
+      }
+    }
+  });
+
+  // ── Donut ──
+  const donutCtx = document.getElementById('donut-chart').getContext('2d');
+  new Chart(donutCtx, {
+    type: 'doughnut',
+    data: {
+      datasets: [{
+        data: [passCount, modCount, failCount],
+        backgroundColor: ['#22c55e', '#f59e0b', '#ef4444'],
+        borderWidth: 0, hoverOffset: 4
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false, cutout: '68%',
+      plugins: { legend: { display: false }, tooltip: { enabled: true } }
+    }
+  });
+
+  // ── Table ──
+  const tbody = document.getElementById('table-body');
+  tbody.innerHTML = '';
+  data.forEach(sec => {
+    const f = sec.features;
+    const row = `<tr>
+      <td>${sec.chainage_km} km</td>
+      <td>${f.rl}</td><td>${f.qd}</td>
+      <td>${f.brightness}</td><td>${f.contrast}</td>
+      <td>${f.blur}</td><td>${f.visibility_score}</td>
+      <td>${sec.speed_zone} km/h</td>
+      <td>${sec.condition}</td>
+      <td>${sec.confidence}%</td>
+      <td>${ircBadge(sec.irc_pass)}</td>
+    </tr>`;
+    tbody.insertAdjacentHTML('beforeend', row);
+  });
+}
+
+function showDetail(sec) {
+  const el = document.getElementById('section-detail');
+  const f  = sec.features;
+  el.style.display = 'block';
+  document.getElementById('detail-content').innerHTML = `
+    <b style="color:var(--accent)">${sec.chainage_km} km</b> &nbsp;|&nbsp;
+    Condition: ${sec.condition} &nbsp;|&nbsp; Speed: ${sec.speed_zone} km/h<br>
+    Quality: <span class="badge ${badgeClass(sec.label)}">${sec.label}</span> &nbsp;
+    IRC: ${sec.irc_pass ? '<span style="color:var(--pass)">PASS ✓</span>' : '<span style="color:var(--fail)">FAIL ✗</span>'}<br><br>
+    ${Object.entries(f).map(([k,v]) => {
+      const thr = sec.thresholds[k];
+      const ok  = v >= thr;
+      return `<span style="color:${ok?'var(--pass)':'var(--fail)'}">${ok?'✓':'✗'}</span> ${k.padEnd(18,' ')}: ${v} (min ${thr})`;
+    }).join('<br>')}
+    <br><br>Failed: ${sec.failed_params.length ? sec.failed_params.join(', ') : 'None'}`;
+}
+
+function loadJSON(input) {
+  const file = input.files[0];
+  const reader = new FileReader();
+  reader.onload = e => { try { renderDashboard(JSON.parse(e.target.result)); } catch(err) { alert('Invalid JSON: ' + err); } };
+  reader.readAsText(file);
+}
+
+function loadDemo() {
+  const conditions = ['day','night','fog','wet','day'];
+  const labels     = ['Good','Good','Moderate','Poor','Good','Good','Moderate','Poor','Good','Poor'];
+  const demo = Array.from({length: 20}, (_,i) => ({
+    section_id: i+1, chainage_km: Math.round((i+1)*0.5*10)/10,
+    filename: `frame_${i+1}.jpg`,
+    condition: conditions[i % conditions.length],
+    label:     labels[i % labels.length],
+    confidence: Math.round(85 + Math.random()*14),
+    irc_pass:  labels[i % labels.length] !== 'Poor',
+    failed_params: labels[i % labels.length] === 'Poor' ? ['visibility_score','rl'] : [],
+    speed_zone: [60,80,100][i%3],
+    features: {
+      rl:               Math.round(80  + Math.random()*230),
+      qd:               Math.round(80  + Math.random()*180),
+      brightness:       Math.round(70  + Math.random()*150),
+      contrast:         Math.round(30  + Math.random()*70),
+      blur:             Math.round(20  + Math.random()*120),
+      visibility_score: Math.round(45  + Math.random()*50),
+    },
+    thresholds: { rl:120, qd:100, brightness:80, contrast:40, blur:20, visibility_score:55 }
+  }));
+  renderDashboard(demo);
+}
+</script>
+</body>
+</html>'''
+
+with open("drishtipath_dashboard.html", "w") as f:
+    f.write(dashboard_html)
+
+files.download("drishtipath_dashboard.html")
+print("✅ Dashboard saved! Open drishtipath_dashboard.html in any browser.")
+print("   → Upload your survey_data.json to see real results")
+print("   → Or click 'load demo data' to preview immediately")
